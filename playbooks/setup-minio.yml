@@ -1,0 +1,11 @@
+---
+- name: Setup Minio Server
+  hosts: minio
+  become: yes
+  vars:
+    # Example override (can be placed in inventory or group_vars)
+    # minio_root_user: "admin"
+    # minio_root_password: "SuperSecretPassword123!"
+
+  roles:
+    - role: minio
