@@ -3,3 +3,6 @@
 .vscode
 .idea
 *.log
+
+# Credentials (use ansible-vault in production)
+inventory/group_vars/

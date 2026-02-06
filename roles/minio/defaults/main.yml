@@ -1,16 +1,20 @@
 ---
-minio_version: "RELEASE.2024-01-16T16-07-38Z"
+# MinIO Server Version (use latest stable)
+minio_version: "RELEASE.2024-11-07T00-52-20Z"
 minio_server_bin: /usr/local/bin/minio
+minio_client_bin: /usr/local/bin/mc
+
 minio_user: minio
 minio_group: minio
-minio_data_dir: /data
+minio_data_dir: /media/andres/data/minio
 minio_config_dir: /etc/minio
 
-minio_server_addr: ":9000"
-minio_console_addr: ":9001"
+minio_server_addr: "0.0.0.0:9000"
+minio_console_addr: "0.0.0.0:9001"
 
 minio_root_user: "minioadmin"
 minio_root_password: "minioadmin"
 
 minio_volumes: "{{ minio_data_dir }}"
 minio_opts: "--console-address {{ minio_console_addr }} --address {{ minio_server_addr }}"
+
