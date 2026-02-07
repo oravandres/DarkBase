@@ -1,0 +1,63 @@
+---
+- name: Prepare DarkBase for K3s
+  hosts: DarkBase
+  gather_facts: yes
+  become: yes
+  tasks:
+    - name: Ensure k3s group exists
+      group:
+        name: k3s
+        state: present
+
+    - name: Ensure k3s user exists
+      user:
+        name: k3s
+        group: k3s
+        state: present
+
+    # Replicate necessary variables from MiMi
+    - name: Set K3s variables
+      set_fact:
+        k3s_version: "v1.29.0+k3s1"
+        k3s_api_port: 6443
+        k3s_agent_args: []
+        k3s_node_labels: []
+        k3s_node_taints: []
+        k3s_install_script_path: /tmp/k3s-install-script.sh
+        k3s_agent_service_name: k3s-agent
+        k3s_binary_path: /usr/local/bin/k3s
+        k3s_agent_ready_timeout: 300
+
+    - name: Download K3s binary (x64)
+      get_url:
+        url: https://github.com/k3s-io/k3s/releases/download/{{ k3s_version }}/k3s
+        dest: /usr/local/bin/k3s
+        mode: '0755'
+
+    - name: Download K3s install script
+      get_url:
+        url: https://get.k3s.io
+        dest: /tmp/k3s-install-script.sh
+        mode: '0755'
+
+- name: Get K3s token from master
+  hosts: servers
+  gather_facts: no
+  become: yes
+  tasks:
+    - name: Read K3s token
+      slurp:
+        src: /var/lib/k3s/server/node-token
+      register: k3s_token_slurp
+
+    - name: Set token fact on server
+      set_fact:
+        k3s_cluster_token: "{{ k3s_token_slurp.content | b64decode | trim }}"
+
+- name: Deploy K3s Agent
+  hosts: DarkBase
+  become: yes
+  vars:
+    k3s_api_server: "pi-c1"
+  roles:
+    - role: k3s_agent
