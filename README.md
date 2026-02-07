@@ -1,4 +1,4 @@
-# Darkbase - MinIO Backup Server
+# DarkBase - MinIO Backup Server
 
 Ansible project to deploy MinIO as an S3-compatible backup server for the MiMi K3s cluster.
 
@@ -6,33 +6,33 @@ Ansible project to deploy MinIO as an S3-compatible backup server for the MiMi K
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                     Darkbase Server                                  │
-│                                                                       │
-│  ┌─────────────────────────────────────────────────────────────────┐ │
-│  │                    MinIO Object Storage                          │ │
-│  │                                                                   │ │
-│  │  API:     https://s3.mimi.local                                 │ │
-│  │  Console: https://minio.mimi.local                               │ │
-│  │                                                                   │ │
-│  │  Buckets:                                                         │ │
-│  │    ├── etcd-backups     (K3s etcd snapshots)                     │ │
-│  │    ├── velero-backups   (Cluster resources & PVs)                │ │
-│  │    ├── loki-chunks      (Log storage)                            │ │
-│  │    └── grafana-backups  (Dashboard exports)                      │ │
-│  │                                                                   │ │
-│  │  Storage: /media/andres/data/minio (1.8TB External HDD)          │ │
-│  └─────────────────────────────────────────────────────────────────┘ │
+│                     DarkBase Server                                 │
+│                                                                     │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │                    MinIO Object Storage                        │ │
+│  │                                                                │ │
+│  │  API:     https://s3.mimi.local                                │ │
+│  │  Console: https://minio.mimi.local                             │ │
+│  │                                                                │ │
+│  │  Buckets:                                                      │ │
+│  │    ├── etcd-backups     (K3s etcd snapshots)                   │ │
+│  │    ├── velero-backups   (Cluster resources & PVs)              │ │
+│  │    ├── loki-chunks      (Log storage)                          │ │
+│  │    └── grafana-backups  (Dashboard exports)                    │ │
+│  │                                                                │ │
+│  │  Storage: /media/andres/data/minio (1.8TB External HDD)        │ │
+│  └────────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    MiMi K3s Cluster (6 nodes)                        │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐                        │
-│  │   pi-c1    │ │   pi-c2    │ │   pi-c3    │  Control Plane          │
-│  └────────────┘ └────────────┘ └────────────┘                        │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐                        │
-│  │   pi-n1    │ │   pi-n2    │ │   pi-n3    │  Workers                │
-│  └────────────┘ └────────────┘ └────────────┘                        │
+│                    MiMi K3s Cluster (6 nodes)                       │
+│  ┌────────────┐ ┌────────────┐ ┌────────────┐                       │
+│  │   pi-c1    │ │   pi-c2    │ │   pi-c3    │  Control Plane        │
+│  └────────────┘ └────────────┘ └────────────┘                       │
+│  ┌────────────┐ ┌────────────┐ ┌────────────┐                       │
+│  │   pi-n1    │ │   pi-n2    │ │   pi-n3    │  Workers              │
+│  └────────────┘ └────────────┘ └────────────┘                       │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -145,7 +145,7 @@ df -h /media/andres/data
 ## Project Structure
 
 ```
-darkbase/
+DarkBase/
 ├── inventory/
 │   ├── hosts.yml           # Target hosts (localhost)
 │   └── group_vars/
