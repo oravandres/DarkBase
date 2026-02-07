@@ -1,6 +1,12 @@
-# DarkBase - MinIO Backup Server
+# DarkBase GPU node and MinIO Backup server
 
-Ansible project to deploy MinIO as an S3-compatible backup server for the MiMi K3s cluster.
+This repository contains the configuration for **DarkBase**, acting as a GPU worker node for the MiMi cluster and a MinIO backup server.
+
+## Features
+
+- **MinIO Backup Server**: Provides S3-compatible storage for Velero backups.
+- **GPU Worker Node**: Adds GPU compute capacity to the MiMi cluster.
+- **Local Deployment**: Runs directly on the host machine.
 
 ## Overview
 
