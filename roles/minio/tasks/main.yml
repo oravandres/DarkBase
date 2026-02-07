@@ -66,7 +66,7 @@
 
 - name: Download MinIO Client (mc)
   ansible.builtin.get_url:
-    url: "https://dl.min.io/client/mc/release/linux-amd64/mc"
+    url: "https://dl.min.io/client/mc/release/linux-amd64/archive/mc.{{ minio_mc_version }}"
     dest: "{{ minio_client_bin }}"
     mode: '0755'
     owner: root
@@ -127,3 +127,16 @@
     - grafana-backups
   changed_when: true
 
+- name: Configure bucket lifecycle policies
+  ansible.builtin.command:
+    cmd: >
+      {{ minio_client_bin }} ilm rule add local/{{ item.bucket }}
+      --expire-days {{ item.days }}
+      --noncurrent-expire-days {{ item.days }}
+  loop:
+    - { bucket: "etcd-backups", days: "{{ minio_lifecycle_etcd_days }}" }
+    - { bucket: "velero-backups", days: "{{ minio_lifecycle_velero_days }}" }
+    - { bucket: "loki-chunks", days: "{{ minio_lifecycle_loki_days }}" }
+    - { bucket: "grafana-backups", days: "{{ minio_lifecycle_grafana_days }}" }
+  changed_when: true
+  failed_when: false  # May fail if rule already exists

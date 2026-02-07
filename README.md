@@ -11,8 +11,8 @@ Ansible project to deploy MinIO as an S3-compatible backup server for the MiMi K
 │  ┌─────────────────────────────────────────────────────────────────┐ │
 │  │                    MinIO Object Storage                          │ │
 │  │                                                                   │ │
-│  │  API:     http://192.168.1.239:9000                              │ │
-│  │  Console: http://192.168.1.239:9001                              │ │
+│  │  API:     https://s3.mimi.local                                 │ │
+│  │  Console: https://minio.mimi.local                               │ │
 │  │                                                                   │ │
 │  │  Buckets:                                                         │ │
 │  │    ├── etcd-backups     (K3s etcd snapshots)                     │ │
@@ -50,8 +50,11 @@ curl http://localhost:9000/minio/health/live
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| MinIO Console | http://192.168.1.239:9001 | See `inventory/group_vars/minio.yml` |
-| MinIO API | http://192.168.1.239:9000 | S3-compatible endpoint |
+| MinIO Console | https://minio.mimi.local | See MiMi-Secrets repo |
+| MinIO S3 API | https://s3.mimi.local | S3-compatible endpoint |
+
+> **Note:** These URLs route through the MiMi cluster's Traefik ingress.
+> Direct access: `http://192.168.1.239:9001` (console) / `:9000` (API)
 
 ## Configuration
 
@@ -119,7 +122,7 @@ velero install \
   --plugins velero/velero-plugin-for-aws:v1.8.0 \
   --bucket velero-backups \
   --secret-file ./credentials-velero \
-  --backup-location-config region=minio,s3ForcePathStyle="true",s3Url=http://192.168.1.239:9000 \
+  --backup-location-config region=minio,s3ForcePathStyle="true",s3Url=https://s3.mimi.local \
   --use-volume-snapshots=false
 ```
 

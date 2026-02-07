@@ -1,6 +1,7 @@
 ---
 # MinIO Server Version (use latest stable)
 minio_version: "RELEASE.2024-11-07T00-52-20Z"
+minio_mc_version: "RELEASE.2024-11-17T19-35-25Z"
 minio_server_bin: /usr/local/bin/minio
 minio_client_bin: /usr/local/bin/mc
 
@@ -17,4 +18,10 @@ minio_root_password: "minioadmin"
 
 minio_volumes: "{{ minio_data_dir }}"
 minio_opts: "--console-address {{ minio_console_addr }} --address {{ minio_server_addr }}"
+
+# Bucket lifecycle policies (days to retain backups)
+minio_lifecycle_etcd_days: 30
+minio_lifecycle_velero_days: 30
+minio_lifecycle_loki_days: 14
+minio_lifecycle_grafana_days: 90
 
