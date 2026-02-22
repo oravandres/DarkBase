@@ -1,0 +1,29 @@
+---
+# Ollama data directory (models stored on fast NVMe)
+ollama_data_dir: /media/andres/data/ollama
+
+# Ollama API bind address (0.0.0.0 for cluster access)
+ollama_host: "0.0.0.0:11434"
+ollama_port: 11434
+
+# Number of parallel model requests
+ollama_num_parallel: 2
+
+# Maximum loaded models (keep 1 to save VRAM)
+ollama_max_loaded_models: 1
+
+# Context size (default 2048, increase if you have spare VRAM)
+ollama_context_size: 4096
+
+# Keep model in memory duration (default 5m)
+ollama_keep_alive: "5m"
+
+# Models to pull after installation
+ollama_models:
+  - deepseek-r1:32b
+  - qwen3:32b
+  - qwen3:14b
+  - qwen2.5-coder:32b
+
+# Async timeout for model pulls (large models take a while)
+ollama_pull_timeout: 7200

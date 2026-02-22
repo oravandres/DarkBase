@@ -1,45 +1,60 @@
-# DarkBase GPU node and MinIO Backup server
+# DarkBase GPU Node, MinIO Backup Server & LLM Platform
 
-This repository contains the configuration for **DarkBase**, acting as a GPU worker node for the MiMi cluster and a MinIO backup server.
+This repository contains the configuration for **DarkBase**, acting as a GPU worker node for the MiMi cluster, a MinIO backup server, and a local LLM serving platform.
 
 ## Features
 
 - **MinIO Backup Server**: Provides S3-compatible storage for Velero backups.
 - **GPU Worker Node**: Adds GPU compute capacity to the MiMi cluster.
-- **Local Deployment**: Runs directly on the host machine.
+- **LLM Serving (Ollama)**: Runs local LLMs with GPU acceleration, exposing an OpenAI-compatible API.
+- **Local Deployment**: Runs directly on the host machine via Ansible.
 
 ## Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                     DarkBase Server                                 │
-│                                                                     │
-│  ┌────────────────────────────────────────────────────────────────┐ │
-│  │                    MinIO Object Storage                        │ │
-│  │                                                                │ │
-│  │  API:     https://s3.mimi.local                                │ │
-│  │  Console: https://minio.mimi.local                             │ │
-│  │                                                                │ │
-│  │  Buckets:                                                      │ │
-│  │    ├── etcd-backups     (K3s etcd snapshots)                   │ │
-│  │    ├── velero-backups   (Cluster resources & PVs)              │ │
-│  │    ├── loki-chunks      (Log storage)                          │ │
-│  │    └── grafana-backups  (Dashboard exports)                    │ │
-│  │                                                                │ │
-│  │  Storage: /media/andres/data/minio (1.8TB External HDD)        │ │
-│  └────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                       DarkBase Server                                 │
+│              i7-14700K · 128GB RAM · RTX 4080 16GB                    │
+│                                                                       │
+│  ┌──────────────────────────────────────────────────────────────────┐ │
+│  │                  Ollama LLM Server (:11434)                      │ │
+│  │                                                                  │ │
+│  │  Models:                                                         │ │
+│  │    ├── deepseek-r1:32b      (Reasoning, math, code)             │ │
+│  │    ├── qwen3:32b            (General purpose, multilingual)      │ │
+│  │    ├── qwen3:14b            (Fast general purpose)              │ │
+│  │    └── qwen2.5-coder:32b   (Code generation)                   │ │
+│  │                                                                  │ │
+│  │  API: http://192.168.1.239:11434 (OpenAI-compatible)             │ │
+│  │  Storage: /media/andres/data/ollama (1.8TB NVMe)                 │ │
+│  └──────────────────────────────────────────────────────────────────┘ │
+│                                                                       │
+│  ┌──────────────────────────────────────────────────────────────────┐ │
+│  │                  MinIO Object Storage                            │ │
+│  │                                                                  │ │
+│  │  API:     https://s3.mimi.local                                  │ │
+│  │  Console: https://minio.mimi.local                               │ │
+│  │                                                                  │ │
+│  │  Buckets:                                                        │ │
+│  │    ├── etcd-backups     (K3s etcd snapshots)                     │ │
+│  │    ├── velero-backups   (Cluster resources & PVs)                │ │
+│  │    ├── loki-chunks      (Log storage)                            │ │
+│  │    └── grafana-backups  (Dashboard exports)                      │ │
+│  │                                                                  │ │
+│  │  Storage: /media/andres/data/minio (1.8TB NVMe)                  │ │
+│  └──────────────────────────────────────────────────────────────────┘ │
+└───────────────────────────────────────────────────────────────────────┘
                             │
                             ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    MiMi K3s Cluster (6 nodes)                       │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐                       │
-│  │   pi-c1    │ │   pi-c2    │ │   pi-c3    │  Control Plane        │
-│  └────────────┘ └────────────┘ └────────────┘                       │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐                       │
-│  │   pi-n1    │ │   pi-n2    │ │   pi-n3    │  Workers              │
-│  └────────────┘ └────────────┘ └────────────┘                       │
-└─────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                    MiMi K3s Cluster (6 nodes)                         │
+│  ┌────────────┐ ┌────────────┐ ┌────────────┐                         │
+│  │   pi-c1    │ │   pi-c2    │ │   pi-c3    │  Control Plane          │
+│  └────────────┘ └────────────┘ └────────────┘                         │
+│  ┌────────────┐ ┌────────────┐ ┌────────────┐                         │
+│  │   pi-n1    │ │   pi-n2    │ │   pi-n3    │  Workers                │
+│  └────────────┘ └────────────┘ └────────────┘                         │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Quick Start
@@ -48,11 +63,64 @@ This repository contains the configuration for **DarkBase**, acting as a GPU wor
 # Deploy MinIO (requires sudo password)
 ansible-playbook playbooks/setup-minio.yml --ask-become-pass
 
-# Verify installation
-curl http://localhost:9000/minio/health/live
+# Deploy Ollama + download models (requires sudo password)
+ansible-playbook playbooks/setup-ollama.yml --ask-become-pass
 ```
 
-## Access
+## LLM API Access
+
+| Service | URL | Protocol |
+|---------|-----|----------|
+| Ollama API | http://192.168.1.239:11434 | OpenAI-compatible |
+| Model list | http://localhost:11434/api/tags | REST |
+
+### Usage Examples
+
+```bash
+# List available models
+curl http://localhost:11434/api/tags | jq '.models[].name'
+
+# Generate text (streaming)
+curl http://localhost:11434/api/generate -d '{
+  "model": "qwen3:14b",
+  "prompt": "Explain K3s in one paragraph"
+}'
+
+# Generate text (non-streaming)
+curl http://localhost:11434/api/generate -d '{
+  "model": "deepseek-r1:32b",
+  "prompt": "Write a Python function to sort a linked list",
+  "stream": false
+}'
+
+# OpenAI-compatible chat endpoint (works with any OpenAI SDK)
+curl http://localhost:11434/v1/chat/completions -d '{
+  "model": "qwen3:32b",
+  "messages": [{"role": "user", "content": "Hello!"}]
+}'
+
+# Pull additional models
+ollama pull deepseek-r1:70b
+```
+
+### Python SDK Example
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://192.168.1.239:11434/v1",
+    api_key="unused"  # Ollama doesn't require a key
+)
+
+response = client.chat.completions.create(
+    model="qwen3:32b",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+print(response.choices[0].message.content)
+```
+
+## MinIO Access
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
@@ -64,14 +132,56 @@ curl http://localhost:9000/minio/health/live
 
 ## Configuration
 
-Credentials and settings are stored in `inventory/group_vars/minio.yml` (gitignored).
+Credentials and settings are stored in `inventory/group_vars/` (gitignored).
 
-### Storage Location
+### Storage Locations
 
-MinIO stores data on the external HDD:
-- Mount point: `/media/andres/data`
-- Data directory: `/media/andres/data/minio`
-- Capacity: ~1.8TB
+| Service | Path | Purpose |
+|---------|------|---------|
+| MinIO | `/media/andres/data/minio` | Backup object storage |
+| Ollama | `/media/andres/data/ollama` | LLM model weights |
+
+All data lives on a 1.8TB NVMe drive mounted at `/media/andres/data`.
+
+## Troubleshooting
+
+### Ollama
+
+```bash
+# Check Ollama service status
+sudo systemctl status ollama
+
+# View Ollama logs
+sudo journalctl -u ollama -f
+
+# Test API health
+curl http://localhost:11434/api/tags
+
+# List models
+ollama list
+
+# Check GPU usage during inference
+nvidia-smi
+
+# Check model storage usage
+du -sh /media/andres/data/ollama/
+```
+
+### MinIO
+
+```bash
+# Check MinIO service status
+sudo systemctl status minio
+
+# View MinIO logs
+sudo journalctl -u minio -f
+
+# Test API health
+curl http://localhost:9000/minio/health/live
+
+# Check disk usage
+df -h /media/andres/data
+```
 
 ## Using MinIO Client (mc)
 
@@ -89,81 +199,28 @@ sudo mc cp local/etcd-backups/myfile.tar.gz ./
 sudo mc du local/
 ```
 
-## Integration with MiMi Cluster
-
-### etcd Backup (Recommended First Step)
-
-Create a CronJob on the cluster to backup etcd snapshots:
-
-```yaml
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: etcd-backup
-  namespace: kube-system
-spec:
-  schedule: "0 2 * * *"  # Daily at 2 AM
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          containers:
-          - name: etcd-backup
-            image: bitnami/kubectl:latest
-            command: ["/bin/sh", "-c"]
-            args:
-              - |
-                # Snapshot etcd and upload to MinIO
-                k3s etcd-snapshot save
-                # Upload logic here
-          restartPolicy: OnFailure
-```
-
-### Velero (Full Cluster Backup)
-
-```bash
-# Install Velero with MinIO backend
-velero install \
-  --provider aws \
-  --plugins velero/velero-plugin-for-aws:v1.8.0 \
-  --bucket velero-backups \
-  --secret-file ./credentials-velero \
-  --backup-location-config region=minio,s3ForcePathStyle="true",s3Url=https://s3.mimi.local \
-  --use-volume-snapshots=false
-```
-
-## Troubleshooting
-
-```bash
-# Check MinIO service status
-sudo systemctl status minio
-
-# View MinIO logs
-sudo journalctl -u minio -f
-
-# Test API health
-curl http://localhost:9000/minio/health/live
-
-# Check disk usage
-df -h /media/andres/data
-```
-
 ## Project Structure
 
 ```
 DarkBase/
 ├── inventory/
 │   ├── hosts.yml           # Target hosts (localhost)
-│   └── group_vars/
-│       └── minio.yml       # Credentials (gitignored)
+│   └── group_vars/         # Credentials (gitignored)
 ├── playbooks/
-│   └── setup-minio.yml     # Main deployment playbook
+│   ├── setup-minio.yml     # MinIO deployment
+│   ├── setup-ollama.yml    # Ollama + models deployment
+│   └── join-k3s.yml        # K3s agent join
 └── roles/
-    └── minio/
-        ├── defaults/       # Default variables
+    ├── minio/              # MinIO object storage
+    │   ├── defaults/       # Default variables
+    │   ├── handlers/       # Service restart handlers
+    │   ├── tasks/          # Installation tasks
+    │   └── templates/      # Systemd & env templates
+    └── ollama/             # Ollama LLM server
+        ├── defaults/       # Default variables (models list, paths)
         ├── handlers/       # Service restart handlers
-        ├── tasks/          # Installation tasks
-        └── templates/      # Systemd & env templates
+        ├── tasks/          # Install, configure, pull models
+        └── templates/      # Environment config template
 ```
 
 ## License

@@ -1,0 +1,175 @@
+---
+# ── Preflight ─────────────────────────────────────────────────────────
+- name: Verify data directory parent mount
+  ansible.builtin.stat:
+    path: "{{ ollama_data_dir | dirname }}"
+  register: data_parent
+  failed_when: not data_parent.stat.exists
+  tags: [preflight]
+
+- name: Check if data parent is a mount point
+  ansible.builtin.command:
+    cmd: findmnt {{ ollama_data_dir | dirname }}
+  register: mount_check
+  changed_when: false
+  failed_when: mount_check.rc != 0
+  tags: [preflight]
+
+- name: Verify NVIDIA GPU is available
+  ansible.builtin.command:
+    cmd: nvidia-smi
+  register: nvidia_check
+  changed_when: false
+  failed_when: nvidia_check.rc != 0
+  tags: [preflight]
+
+- name: Display GPU info
+  ansible.builtin.debug:
+    msg: "{{ nvidia_check.stdout_lines[:5] }}"
+  tags: [preflight]
+
+# ── Installation ──────────────────────────────────────────────────────
+- name: Check if Ollama is already installed
+  ansible.builtin.command:
+    cmd: which ollama
+  register: ollama_installed
+  changed_when: false
+  failed_when: false
+
+- name: Install Ollama via official script
+  ansible.builtin.shell: |
+    curl -fsSL https://ollama.com/install.sh | sh
+  args:
+    creates: /usr/local/bin/ollama
+  when: ollama_installed.rc != 0
+
+- name: Verify Ollama installation
+  ansible.builtin.command:
+    cmd: ollama --version
+  register: ollama_version
+  changed_when: false
+
+- name: Display Ollama version
+  ansible.builtin.debug:
+    msg: "{{ ollama_version.stdout }}"
+
+# ── Configuration ─────────────────────────────────────────────────────
+# Ensure the ollama user can traverse to the data directory
+# (needed when using external drives mounted in user directories)
+- name: Ensure parent directories are traversable
+  ansible.builtin.shell: |
+    parent="{{ ollama_data_dir | dirname }}"
+    while [ "$parent" != "/" ]; do
+      chmod o+rx "$parent" 2>/dev/null || true
+      parent=$(dirname "$parent")
+    done
+  changed_when: true
+
+- name: Create Ollama data directory on NVMe
+  ansible.builtin.file:
+    path: "{{ ollama_data_dir }}"
+    state: directory
+    owner: ollama
+    group: ollama
+    mode: '0755'
+
+- name: Create Ollama configuration directory
+  ansible.builtin.file:
+    path: /etc/ollama
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install Ollama environment file
+  ansible.builtin.template:
+    src: ollama.env.j2
+    dest: /etc/ollama/ollama.env
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart ollama
+
+- name: Create systemd override directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/ollama.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install Ollama systemd override
+  ansible.builtin.copy:
+    content: |
+      [Service]
+      EnvironmentFile=/etc/ollama/ollama.env
+    dest: /etc/systemd/system/ollama.service.d/override.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart ollama
+
+# ── Service ───────────────────────────────────────────────────────────
+# Flush handlers NOW so Ollama restarts with OLLAMA_MODELS pointing to NVMe
+# before we start pulling models. Without this, the serve process uses the
+# default path because the override hasn't been loaded yet.
+- name: Apply configuration changes (restart if needed)
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start Ollama service
+  ansible.builtin.systemd:
+    name: ollama
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
+- name: Wait for Ollama API to be ready
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ollama_port }}/api/tags"
+    method: GET
+    status_code: 200
+  register: health_check
+  retries: 15
+  delay: 3
+  until: health_check.status == 200
+
+- name: Show Ollama API status
+  ansible.builtin.debug:
+    msg: "Ollama API is running at http://{{ ollama_host }}"
+
+# ── Model Downloads ───────────────────────────────────────────────────
+- name: Check already downloaded models
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ollama_port }}/api/tags"
+    method: GET
+    return_content: yes
+  register: existing_models
+
+- name: Parse existing model names
+  ansible.builtin.set_fact:
+    existing_model_names: "{{ existing_models.json.models | default([]) | map(attribute='name') | list }}"
+
+- name: Display existing models
+  ansible.builtin.debug:
+    msg: "Already downloaded: {{ existing_model_names }}"
+
+- name: Pull models (this will take a while)
+  ansible.builtin.command:
+    cmd: "ollama pull {{ item }}"
+  loop: "{{ ollama_models }}"
+  when: item not in existing_model_names and (item + ':latest') not in existing_model_names
+  register: model_pull
+  async: "{{ ollama_pull_timeout }}"
+  poll: 30
+  changed_when: true
+
+- name: Verify all models are available
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ollama_port }}/api/tags"
+    method: GET
+    return_content: yes
+  register: final_models
+
+- name: Display available models
+  ansible.builtin.debug:
+    msg: "Available models: {{ final_models.json.models | map(attribute='name') | list }}"
