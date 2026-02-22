@@ -24,6 +24,7 @@ ollama_models:
   - qwen3:32b
   - qwen3:14b
   - qwen2.5-coder:32b
+  - huihui_ai/deepseek-r1-abliterated:14b
   - huihui_ai/deepseek-r1-abliterated:32b
   - huihui_ai/deepseek-r1-abliterated:70b
 

@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import random
+import re
 import shutil
 import time
 import uuid
@@ -176,7 +177,7 @@ def _build_flux_workflow(prompt: str, width: int, height: int, steps: int, seed:
     """
     unet_name = f"flux1-{FLUX_MODEL_VERSION}.safetensors"
 
-    return {
+    workflow = {
         "prompt": {
             "3": {
                 "class_type": "KSampler",
@@ -187,7 +188,7 @@ def _build_flux_workflow(prompt: str, width: int, height: int, steps: int, seed:
                     "sampler_name": "euler",
                     "scheduler": "simple",
                     "denoise": 1.0,
-                    "model": ["10", 0],
+                    "model": ["10", 0],  # Will be updated if LoRAs exist
                     "positive": ["6", 0],
                     "negative": ["7", 0],
                     "latent_image": ["5", 0],
@@ -204,15 +205,15 @@ def _build_flux_workflow(prompt: str, width: int, height: int, steps: int, seed:
             "6": {
                 "class_type": "CLIPTextEncode",
                 "inputs": {
-                    "text": prompt,
-                    "clip": ["11", 0],
+                    "text": prompt,  # Will be updated to stripped prompt
+                    "clip": ["11", 0], # Will be updated if LoRAs exist
                 },
             },
             "7": {
                 "class_type": "CLIPTextEncode",
                 "inputs": {
                     "text": "",
-                    "clip": ["11", 0],
+                    "clip": ["11", 0], # Will be updated if LoRAs exist
                 },
             },
             "8": {
@@ -230,8 +231,8 @@ def _build_flux_workflow(prompt: str, width: int, height: int, steps: int, seed:
                 },
             },
             "10": {
-                "class_type": "UNETLoader",
-                "inputs": {
+                "class_type": "UNETLoaderNF4" if FLUX_MODEL_VERSION == "gaia" else "UNETLoader",
+                "inputs": {"unet_name": unet_name} if FLUX_MODEL_VERSION == "gaia" else {
                     "unet_name": unet_name,
                     "weight_dtype": "default",
                 },
@@ -252,6 +253,49 @@ def _build_flux_workflow(prompt: str, width: int, height: int, steps: int, seed:
             },
         }
     }
+
+    # Intercept <lora:filename:strength> tags from the prompt
+    lora_matches = list(re.finditer(r"<lora:([^:>]+)(?::([0-9.]+))?>", prompt))
+    clean_prompt = prompt
+
+    last_model = ["10", 0]
+    last_clip = ["11", 0]
+    node_id_counter = 20
+
+    for match in lora_matches:
+        full_match = match.group(0)
+        lora_name = match.group(1)
+        strength = float(match.group(2)) if match.group(2) else 1.0
+
+        if not lora_name.endswith(".safetensors"):
+            lora_name += ".safetensors"
+
+        clean_prompt = clean_prompt.replace(full_match, "")
+
+        node_id = str(node_id_counter)
+        workflow["prompt"][node_id] = {
+            "class_type": "LoraLoader",
+            "inputs": {
+                "lora_name": lora_name,
+                "strength_model": strength,
+                "strength_clip": strength,
+                "model": last_model,
+                "clip": last_clip,
+            },
+        }
+        last_model = [node_id, 0]
+        last_clip = [node_id, 1]
+        node_id_counter += 1
+
+    clean_prompt = clean_prompt.strip()
+
+    # Update workflow with new links and clean prompt
+    workflow["prompt"]["6"]["inputs"]["text"] = clean_prompt
+    workflow["prompt"]["3"]["inputs"]["model"] = last_model
+    workflow["prompt"]["6"]["inputs"]["clip"] = last_clip
+    workflow["prompt"]["7"]["inputs"]["clip"] = last_clip
+
+    return workflow
 
 
 def _make_job_info(job: dict[str, Any]) -> JobInfo:
