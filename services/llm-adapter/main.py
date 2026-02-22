@@ -3,11 +3,13 @@ MiMi LLM Adapter Service
 Wraps Ollama API behind a stable, model-agnostic HTTP interface.
 """
 
+import json
 import os
 import time
 import uuid
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncGenerator
 
 import httpx
@@ -30,6 +32,7 @@ from starlette.responses import Response
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "300"))
 HEALTH_TIMEOUT = float(os.getenv("HEALTH_TIMEOUT", "5"))
+HISTORY_DIR = os.getenv("HISTORY_DIR", "/data/ai-outputs/chats")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("llm-adapter")
@@ -160,6 +163,33 @@ async def _check_ollama(client: httpx.AsyncClient) -> tuple[bool, int]:
     return False, 0
 
 
+def _save_chat_history(
+    chat_id: str,
+    model: str,
+    messages: list[dict],
+    usage: dict,
+    duration: float,
+):
+    """Persist a completed conversation to disk as JSON."""
+    try:
+        os.makedirs(HISTORY_DIR, exist_ok=True)
+        record = {
+            "id": chat_id,
+            "type": "chat",
+            "model": model,
+            "messages": messages,
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "duration_seconds": round(duration, 2),
+            "usage": usage,
+        }
+        filepath = os.path.join(HISTORY_DIR, f"{chat_id}.json")
+        with open(filepath, "w") as f:
+            json.dump(record, f, indent=2)
+        logger.info("Saved chat history %s", chat_id)
+    except Exception as exc:
+        logger.warning("Failed to save chat history: %s", exc)
+
+
 # ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
@@ -282,6 +312,7 @@ async def chat_completions(req: ChatRequest, request: Request):
 
 
 async def _non_stream_chat(payload: dict, model: str) -> ChatResponse:
+    start_time = time.monotonic()
     async with httpx.AsyncClient() as client:
         r = await client.post(
             f"{OLLAMA_BASE_URL}/api/chat",
@@ -293,9 +324,28 @@ async def _non_stream_chat(payload: dict, model: str) -> ChatResponse:
             raise HTTPException(status_code=r.status_code, detail=error_text)
         data = r.json()
 
+    duration = time.monotonic() - start_time
     content = data.get("message", {}).get("content", "")
+    chat_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+
+    usage = ChatUsage(
+        prompt_tokens=data.get("prompt_eval_count", 0),
+        completion_tokens=data.get("eval_count", 0),
+        total_tokens=data.get("prompt_eval_count", 0) + data.get("eval_count", 0),
+    )
+
+    # Save to history
+    all_messages = payload["messages"] + [{"role": "assistant", "content": content}]
+    _save_chat_history(
+        chat_id=chat_id,
+        model=model,
+        messages=all_messages,
+        usage=usage.model_dump(),
+        duration=duration,
+    )
+
     return ChatResponse(
-        id=f"chatcmpl-{uuid.uuid4().hex[:12]}",
+        id=chat_id,
         created=int(time.time()),
         model=model,
         choices=[
@@ -304,15 +354,17 @@ async def _non_stream_chat(payload: dict, model: str) -> ChatResponse:
                 finish_reason="stop",
             )
         ],
-        usage=ChatUsage(
-            prompt_tokens=data.get("prompt_eval_count", 0),
-            completion_tokens=data.get("eval_count", 0),
-            total_tokens=data.get("prompt_eval_count", 0) + data.get("eval_count", 0),
-        ),
+        usage=usage,
     )
 
 
 async def _stream_chat(payload: dict) -> AsyncGenerator[dict, None]:
+    start_time = time.monotonic()
+    full_content = ""
+    prompt_tokens = 0
+    completion_tokens = 0
+    chat_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+
     async with httpx.AsyncClient() as client:
         async with client.stream(
             "POST",
@@ -323,7 +375,6 @@ async def _stream_chat(payload: dict) -> AsyncGenerator[dict, None]:
             async for line in resp.aiter_lines():
                 if not line:
                     continue
-                import json
 
                 try:
                     chunk = json.loads(line)
@@ -331,10 +382,15 @@ async def _stream_chat(payload: dict) -> AsyncGenerator[dict, None]:
                     continue
 
                 content = chunk.get("message", {}).get("content", "")
+                full_content += content
                 done = chunk.get("done", False)
 
+                if done:
+                    prompt_tokens = chunk.get("prompt_eval_count", 0)
+                    completion_tokens = chunk.get("eval_count", 0)
+
                 sse_data = {
-                    "id": f"chatcmpl-stream",
+                    "id": chat_id,
                     "object": "chat.completion.chunk",
                     "created": int(time.time()),
                     "model": payload["model"],
@@ -350,7 +406,72 @@ async def _stream_chat(payload: dict) -> AsyncGenerator[dict, None]:
 
                 if done:
                     yield {"data": "[DONE]"}
+
+                    # Save to history
+                    duration = time.monotonic() - start_time
+                    all_messages = payload["messages"] + [
+                        {"role": "assistant", "content": full_content}
+                    ]
+                    _save_chat_history(
+                        chat_id=chat_id,
+                        model=payload["model"],
+                        messages=all_messages,
+                        usage={
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                            "total_tokens": prompt_tokens + completion_tokens,
+                        },
+                        duration=duration,
+                    )
                     return
+
+
+@app.get("/api/v1/chat/history")
+async def list_chat_history(limit: int = 50, offset: int = 0):
+    """List past conversations, newest first."""
+    try:
+        history_path = Path(HISTORY_DIR)
+        if not history_path.exists():
+            return {"conversations": [], "total": 0}
+
+        files = sorted(history_path.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
+        total = len(files)
+        page = files[offset : offset + limit]
+
+        conversations = []
+        for f in page:
+            try:
+                data = json.loads(f.read_text())
+                # Return summary (without full messages for list view)
+                conversations.append({
+                    "id": data["id"],
+                    "type": "chat",
+                    "model": data.get("model", ""),
+                    "created_at": data.get("created_at", ""),
+                    "duration_seconds": data.get("duration_seconds"),
+                    "usage": data.get("usage", {}),
+                    "message_count": len(data.get("messages", [])),
+                    "preview": data.get("messages", [{}])[0].get("content", "")[:100] if data.get("messages") else "",
+                })
+            except Exception:
+                continue
+
+        return {"conversations": conversations, "total": total}
+    except Exception as exc:
+        return make_error("HISTORY_ERROR", str(exc), 500)
+
+
+@app.get("/api/v1/chat/history/{chat_id}")
+async def get_chat_history(chat_id: str):
+    """Get a single conversation with full messages."""
+    filepath = Path(HISTORY_DIR) / f"{chat_id}.json"
+    if not filepath.exists():
+        return make_error("NOT_FOUND", f"Conversation {chat_id} not found", 404)
+    try:
+        data = json.loads(filepath.read_text())
+        return data
+    except Exception as exc:
+        return make_error("HISTORY_ERROR", str(exc), 500)
 
 
 @app.get("/metrics")

@@ -38,6 +38,7 @@ OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/media/andres/data/ai-outputs/images")
 MAX_QUEUE_DEPTH = int(os.getenv("MAX_QUEUE_DEPTH", "10"))
 HEALTH_TIMEOUT = float(os.getenv("HEALTH_TIMEOUT", "5"))
 GENERATION_TIMEOUT = float(os.getenv("GENERATION_TIMEOUT", "600"))
+FLUX_MODEL_VERSION = os.getenv("FLUX_MODEL_VERSION", "dev")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("image-adapter")
@@ -165,7 +166,16 @@ async def _check_comfyui() -> bool:
 
 
 def _build_flux_workflow(prompt: str, width: int, height: int, steps: int, seed: int) -> dict:
-    """Build a ComfyUI workflow for FLUX.1 image generation."""
+    """Build a ComfyUI workflow for FLUX.1 image generation.
+
+    Uses split-model nodes (UNETLoader, DualCLIPLoader, VAELoader) matching
+    the directory layout created by the Ansible comfyui role:
+      models/unet/flux1-{version}.safetensors
+      models/clip/clip_l.safetensors + t5xxl_fp8_e4m3fn.safetensors
+      models/vae/ae.safetensors
+    """
+    unet_name = f"flux1-{FLUX_MODEL_VERSION}.safetensors"
+
     return {
         "prompt": {
             "3": {
@@ -177,16 +187,10 @@ def _build_flux_workflow(prompt: str, width: int, height: int, steps: int, seed:
                     "sampler_name": "euler",
                     "scheduler": "simple",
                     "denoise": 1.0,
-                    "model": ["4", 0],
+                    "model": ["10", 0],
                     "positive": ["6", 0],
                     "negative": ["7", 0],
                     "latent_image": ["5", 0],
-                },
-            },
-            "4": {
-                "class_type": "CheckpointLoaderSimple",
-                "inputs": {
-                    "ckpt_name": "flux1-dev.safetensors",
                 },
             },
             "5": {
@@ -201,21 +205,21 @@ def _build_flux_workflow(prompt: str, width: int, height: int, steps: int, seed:
                 "class_type": "CLIPTextEncode",
                 "inputs": {
                     "text": prompt,
-                    "clip": ["4", 1],
+                    "clip": ["11", 0],
                 },
             },
             "7": {
                 "class_type": "CLIPTextEncode",
                 "inputs": {
                     "text": "",
-                    "clip": ["4", 1],
+                    "clip": ["11", 0],
                 },
             },
             "8": {
                 "class_type": "VAEDecode",
                 "inputs": {
                     "samples": ["3", 0],
-                    "vae": ["4", 2],
+                    "vae": ["12", 0],
                 },
             },
             "9": {
@@ -223,6 +227,27 @@ def _build_flux_workflow(prompt: str, width: int, height: int, steps: int, seed:
                 "inputs": {
                     "filename_prefix": "mimi",
                     "images": ["8", 0],
+                },
+            },
+            "10": {
+                "class_type": "UNETLoader",
+                "inputs": {
+                    "unet_name": unet_name,
+                    "weight_dtype": "default",
+                },
+            },
+            "11": {
+                "class_type": "DualCLIPLoader",
+                "inputs": {
+                    "clip_name1": "clip_l.safetensors",
+                    "clip_name2": "t5xxl_fp8_e4m3fn.safetensors",
+                    "type": "flux",
+                },
+            },
+            "12": {
+                "class_type": "VAELoader",
+                "inputs": {
+                    "vae_name": "ae.safetensors",
                 },
             },
         }
@@ -311,6 +336,9 @@ async def _queue_worker():
             job["duration_seconds"] = round(duration, 2)
             job["image_url"] = f"/api/v1/images/outputs/{os.path.basename(output_path)}"
 
+            # Save metadata sidecar
+            _save_image_metadata(job, output_path)
+
             logger.info("Job %s completed in %.1fs", job_id, duration)
 
         except Exception as exc:
@@ -394,6 +422,29 @@ def _update_queue_positions():
             position += 1
         else:
             job["queue_position"] = None
+
+
+def _save_image_metadata(job: dict, output_path: str):
+    """Save a JSON metadata sidecar next to the generated image."""
+    try:
+        meta = {
+            "id": job["id"],
+            "type": "image",
+            "prompt": job["prompt"],
+            "width": job["width"],
+            "height": job["height"],
+            "steps": job["steps"],
+            "seed": job["seed"],
+            "created_at": job.get("completed_at", ""),
+            "duration_seconds": job.get("duration_seconds"),
+            "image_file": os.path.basename(output_path),
+        }
+        meta_path = os.path.splitext(output_path)[0] + ".json"
+        with open(meta_path, "w") as f:
+            json.dump(meta, f, indent=2)
+        logger.info("Saved image metadata %s", meta_path)
+    except Exception as exc:
+        logger.warning("Failed to save image metadata: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -513,13 +564,6 @@ async def generate_image(req: GenerateRequest):
     return _make_job_info(job)
 
 
-@app.get("/api/v1/images/{job_id}")
-async def get_job(job_id: str):
-    if job_id not in jobs:
-        return make_error("NOT_FOUND", f"Job {job_id} not found", 404)
-    return _make_job_info(jobs[job_id])
-
-
 @app.get("/api/v1/images/queue")
 async def get_queue():
     queued = [_make_job_info(j) for j in jobs.values() if j["status"] == JobStatus.QUEUED]
@@ -543,6 +587,41 @@ async def serve_output(filename: str):
     return FileResponse(filepath, media_type="image/png")
 
 
+@app.get("/api/v1/images/history")
+async def list_image_history(limit: int = 50, offset: int = 0):
+    """List past image generations, newest first."""
+    try:
+        output_path = Path(OUTPUT_DIR)
+        if not output_path.exists():
+            return {"images": [], "total": 0}
+
+        files = sorted(output_path.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
+        total = len(files)
+        page = files[offset : offset + limit]
+
+        images = []
+        for f in page:
+            try:
+                data = json.loads(f.read_text())
+                data["image_url"] = f"/api/v1/images/outputs/{data.get('image_file', '')}"
+                images.append(data)
+            except Exception:
+                continue
+
+        return {"images": images, "total": total}
+    except Exception as exc:
+        return make_error("HISTORY_ERROR", str(exc), 500)
+
+
+# This MUST be after all static /api/v1/images/* routes to avoid catching them
+@app.get("/api/v1/images/{job_id}")
+async def get_job(job_id: str):
+    if job_id not in jobs:
+        return make_error("NOT_FOUND", f"Job {job_id} not found", 404)
+    return _make_job_info(jobs[job_id])
+
+
 @app.get("/metrics")
 async def metrics():
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+

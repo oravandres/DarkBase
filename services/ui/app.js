@@ -27,8 +27,10 @@
     const clearChatBtn = $('#clearChatBtn');
     const chatTabBtn = $('#chatTabBtn');
     const imagesTabBtn = $('#imagesTabBtn');
+    const historyTabBtn = $('#historyTabBtn');
     const chatTab = $('#chatTab');
     const imagesTab = $('#imagesTab');
+    const historyTab = $('#historyTab');
     const imagePrompt = $('#imagePrompt');
     const generateBtn = $('#generateBtn');
     const imageGallery = $('#imageGallery');
@@ -42,20 +44,30 @@
     const imageStatusChip = $('#imageStatus');
 
     // ─── Tab switching ────────────────────────────────────────────────
+    let historyLoaded = false;
+
     function switchTab(tab) {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
         if (tab === 'chat') {
             chatTabBtn.classList.add('active');
             chatTab.classList.add('active');
-        } else {
+        } else if (tab === 'images') {
             imagesTabBtn.classList.add('active');
             imagesTab.classList.add('active');
+        } else if (tab === 'history') {
+            historyTabBtn.classList.add('active');
+            historyTab.classList.add('active');
+            if (!historyLoaded) {
+                historyLoaded = true;
+                loadHistory();
+            }
         }
     }
 
     chatTabBtn.addEventListener('click', () => switchTab('chat'));
     imagesTabBtn.addEventListener('click', () => switchTab('images'));
+    historyTabBtn.addEventListener('click', () => switchTab('history'));
 
     // ─── Status polling ───────────────────────────────────────────────
     function updateStatusChip(chip, state) {
@@ -510,5 +522,222 @@
     }
 
     renderGallery();
+
+    // ─── History ──────────────────────────────────────────────────────
+    const historyTimeline = $('#historyTimeline');
+    const historyLoadMore = $('#historyLoadMore');
+    const loadMoreBtn = $('#loadMoreBtn');
+    const filterAll = $('#filterAll');
+    const filterChats = $('#filterChats');
+    const filterImages = $('#filterImages');
+
+    let historyEntries = [];
+    let historyFilter = 'all';  // 'all' | 'chat' | 'image'
+    let historyOffset = 0;
+    const HISTORY_PAGE_SIZE = 30;
+    let historyTotalChats = 0;
+    let historyTotalImages = 0;
+    let expandedEntryId = null;
+
+    // Filter buttons
+    [filterAll, filterChats, filterImages].forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            historyFilter = btn.dataset.filter;
+            renderHistory();
+        });
+    });
+
+    async function loadHistory() {
+        historyEntries = [];
+        historyOffset = 0;
+        await fetchHistory();
+    }
+
+    async function fetchHistory() {
+        try {
+            const [chatRes, imgRes] = await Promise.all([
+                fetch(`${API_BASE}/api/v1/chat/history?limit=${HISTORY_PAGE_SIZE}&offset=${historyOffset}`).then(r => r.ok ? r.json() : { conversations: [], total: 0 }),
+                fetch(`${API_BASE}/api/v1/images/history?limit=${HISTORY_PAGE_SIZE}&offset=${historyOffset}`).then(r => r.ok ? r.json() : { images: [], total: 0 }),
+            ]);
+
+            historyTotalChats = chatRes.total;
+            historyTotalImages = imgRes.total;
+
+            // Merge
+            const chats = (chatRes.conversations || []).map(c => ({ ...c, type: 'chat' }));
+            const images = (imgRes.images || []).map(i => ({ ...i, type: 'image' }));
+            const combined = [...chats, ...images];
+
+            // Sort by date descending
+            combined.sort((a, b) => {
+                const da = new Date(a.created_at || 0);
+                const db = new Date(b.created_at || 0);
+                return db - da;
+            });
+
+            if (historyOffset === 0) {
+                historyEntries = combined;
+            } else {
+                historyEntries.push(...combined);
+            }
+
+            renderHistory();
+
+            // Show/hide load more
+            const totalLoaded = historyEntries.length;
+            const totalAvailable = historyTotalChats + historyTotalImages;
+            historyLoadMore.style.display = totalLoaded < totalAvailable ? 'block' : 'none';
+        } catch (err) {
+            console.error('Failed to fetch history:', err);
+        }
+    }
+
+    loadMoreBtn.addEventListener('click', () => {
+        historyOffset += HISTORY_PAGE_SIZE;
+        fetchHistory();
+    });
+
+    function renderHistory() {
+        const filtered = historyFilter === 'all'
+            ? historyEntries
+            : historyEntries.filter(e => e.type === historyFilter);
+
+        if (filtered.length === 0) {
+            historyTimeline.innerHTML = `
+                <div class="history-empty">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    <p>No ${historyFilter === 'all' ? '' : historyFilter + ' '}history yet</p>
+                </div>`;
+            return;
+        }
+
+        let html = '';
+        filtered.forEach(entry => {
+            if (entry.type === 'chat') {
+                html += renderChatEntry(entry);
+            } else {
+                html += renderImageEntry(entry);
+            }
+        });
+        historyTimeline.innerHTML = html;
+
+        // Attach click handlers
+        historyTimeline.querySelectorAll('.history-entry[data-id]').forEach(el => {
+            el.addEventListener('click', () => onEntryClick(el.dataset.id, el.dataset.type));
+        });
+    }
+
+    function formatTime(isoStr) {
+        if (!isoStr) return '';
+        try {
+            const d = new Date(isoStr);
+            const now = new Date();
+            const diffMs = now - d;
+            const diffMin = Math.floor(diffMs / 60000);
+            if (diffMin < 1) return 'just now';
+            if (diffMin < 60) return `${diffMin}m ago`;
+            const diffHr = Math.floor(diffMin / 60);
+            if (diffHr < 24) return `${diffHr}h ago`;
+            const diffDay = Math.floor(diffHr / 24);
+            if (diffDay < 7) return `${diffDay}d ago`;
+            return d.toLocaleDateString();
+        } catch { return isoStr; }
+    }
+
+    function renderChatEntry(entry) {
+        const isExpanded = expandedEntryId === entry.id;
+        return `
+            <div class="history-entry" data-id="${entry.id}" data-type="chat">
+                <div class="history-entry-header">
+                    <span class="history-type-badge chat">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                        Chat
+                    </span>
+                    <span class="history-entry-time">${formatTime(entry.created_at)}</span>
+                </div>
+                <div class="history-entry-preview">${escapeHtml(entry.preview || '(empty)')}</div>
+                <div class="history-entry-meta">
+                    <span>📊 ${entry.model || 'unknown'}</span>
+                    <span>💬 ${entry.message_count || 0} messages</span>
+                    ${entry.duration_seconds ? `<span>⏱ ${entry.duration_seconds}s</span>` : ''}
+                </div>
+                ${isExpanded ? '<div class="history-expanded" id="expanded-' + entry.id + '">Loading…</div>' : ''}
+            </div>`;
+    }
+
+    function renderImageEntry(entry) {
+        return `
+            <div class="history-entry" data-id="${entry.id}" data-type="image">
+                <div class="history-entry-header">
+                    <span class="history-type-badge image">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                        Image
+                    </span>
+                    <span class="history-entry-time">${formatTime(entry.created_at)}</span>
+                </div>
+                <div class="history-entry-thumb">
+                    ${entry.image_url ? `<img src="${entry.image_url}" alt="Generated image" loading="lazy">` : ''}
+                    <div class="history-entry-thumb-info">
+                        <div class="history-entry-preview">${escapeHtml(entry.prompt || '')}</div>
+                        <div class="history-entry-meta">
+                            <span>${entry.width || '?'}×${entry.height || '?'}</span>
+                            <span>seed: ${entry.seed || '?'}</span>
+                            ${entry.duration_seconds ? `<span>⏱ ${entry.duration_seconds}s</span>` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    async function onEntryClick(id, type) {
+        if (type === 'image') {
+            // Open image in modal
+            const entry = historyEntries.find(e => e.id === id && e.type === 'image');
+            if (entry && entry.image_url) {
+                modalImage.src = entry.image_url;
+                modalMeta.innerHTML = `
+                    <div>Prompt: <span>${escapeHtml(entry.prompt || '')}</span></div>
+                    <div>Size: <span>${entry.width}×${entry.height}</span></div>
+                    <div>Seed: <span>${entry.seed}</span></div>
+                    ${entry.duration_seconds ? `<div>Time: <span>${entry.duration_seconds}s</span></div>` : ''}`;
+                imageModal.style.display = 'flex';
+            }
+            return;
+        }
+
+        // Toggle expanded chat
+        if (expandedEntryId === id) {
+            expandedEntryId = null;
+            renderHistory();
+            return;
+        }
+
+        expandedEntryId = id;
+        renderHistory();
+
+        // Fetch full conversation
+        const expandedEl = document.getElementById(`expanded-${id}`);
+        if (!expandedEl) return;
+
+        try {
+            const res = await fetch(`${API_BASE}/api/v1/chat/history/${id}`);
+            if (!res.ok) throw new Error('Failed to load conversation');
+            const data = await res.json();
+
+            let html = '';
+            (data.messages || []).forEach(msg => {
+                html += `
+                    <div class="history-msg">
+                        <div class="history-msg-role ${msg.role}">${msg.role}</div>
+                        <div class="history-msg-content">${escapeHtml(msg.content || '')}</div>
+                    </div>`;
+            });
+            expandedEl.innerHTML = html || '<p style="color:var(--text-muted)">No messages</p>';
+        } catch (err) {
+            expandedEl.innerHTML = `<p style="color:var(--error)">Error: ${err.message}</p>`;
+        }
+    }
 
 })();
