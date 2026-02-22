@@ -1,12 +1,14 @@
-# DarkBase GPU Node, MinIO Backup Server & LLM Platform
+# DarkBase GPU Node, MinIO Backup Server & AI Platform
 
-This repository contains the configuration for **DarkBase**, acting as a GPU worker node for the MiMi cluster, a MinIO backup server, and a local LLM serving platform.
+This repository contains the configuration for **DarkBase**, acting as a GPU worker node for the MiMi cluster, a MinIO backup server, and the local AI inference platform (text + image generation).
 
 ## Features
 
 - **MinIO Backup Server**: Provides S3-compatible storage for Velero backups.
 - **GPU Worker Node**: Adds GPU compute capacity to the MiMi cluster.
 - **LLM Serving (Ollama)**: Runs local LLMs with GPU acceleration, exposing an OpenAI-compatible API.
+- **Image Generation (FLUX.1-dev)**: Runs FLUX.1 via ComfyUI for local image generation.
+- **AI Platform Adapters**: Thin HTTP adapter services wrapping Ollama and ComfyUI behind a stable API.
 - **Local Deployment**: Runs directly on the host machine via Ansible.
 
 ## Overview
@@ -65,6 +67,12 @@ ansible-playbook playbooks/setup-minio.yml --ask-become-pass
 
 # Deploy Ollama + download models (requires sudo password)
 ansible-playbook playbooks/setup-ollama.yml --ask-become-pass
+
+# Deploy ComfyUI + FLUX.1 models (requires sudo password)
+ansible-playbook playbooks/setup-comfyui.yml --ask-become-pass
+
+# Setup AI Platform (labels, images, storage)
+ansible-playbook playbooks/setup-ai-platform.yml --ask-become-pass
 ```
 
 ## LLM API Access
@@ -204,23 +212,23 @@ sudo mc du local/
 ```
 DarkBase/
 ├── inventory/
-│   ├── hosts.yml           # Target hosts (localhost)
-│   └── group_vars/         # Credentials (gitignored)
+│   ├── hosts.yml               # Target hosts (localhost)
+│   └── group_vars/             # Credentials (gitignored)
 ├── playbooks/
-│   ├── setup-minio.yml     # MinIO deployment
-│   ├── setup-ollama.yml    # Ollama + models deployment
-│   └── join-k3s.yml        # K3s agent join
-└── roles/
-    ├── minio/              # MinIO object storage
-    │   ├── defaults/       # Default variables
-    │   ├── handlers/       # Service restart handlers
-    │   ├── tasks/          # Installation tasks
-    │   └── templates/      # Systemd & env templates
-    └── ollama/             # Ollama LLM server
-        ├── defaults/       # Default variables (models list, paths)
-        ├── handlers/       # Service restart handlers
-        ├── tasks/          # Install, configure, pull models
-        └── templates/      # Environment config template
+│   ├── setup-minio.yml         # MinIO deployment
+│   ├── setup-ollama.yml        # Ollama + models deployment
+│   ├── setup-comfyui.yml       # ComfyUI + FLUX.1 deployment
+│   ├── setup-ai-platform.yml   # AI platform prep (labels, images)
+│   └── join-k3s.yml            # K3s agent join
+├── roles/
+│   ├── minio/                  # MinIO object storage
+│   ├── ollama/                 # Ollama LLM server
+│   └── comfyui/                # ComfyUI image generation
+└── services/
+    ├── llm-adapter/            # Chat API adapter (wraps Ollama)
+    ├── image-adapter/          # Image API adapter (wraps ComfyUI)
+    ├── ui/                     # Web UI (chat + image generation)
+    └── build-and-import.sh     # Build & import images into k3s
 ```
 
 ## License

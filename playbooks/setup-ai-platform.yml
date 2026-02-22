@@ -1,0 +1,157 @@
+---
+- name: Prepare DarkBase for AI Platform
+  hosts: DarkBase
+  become: yes
+  gather_facts: yes
+
+  vars:
+    ai_output_dir: /media/andres/data/ai-outputs/images
+    services_dir: /home/andres/Projects/DarkBase/services
+
+  tasks:
+    # ── Preflight ───────────────────────────────────────────────────
+    - name: Verify NVIDIA GPU is available
+      ansible.builtin.command:
+        cmd: nvidia-smi
+      register: nvidia_check
+      changed_when: false
+      failed_when: nvidia_check.rc != 0
+      tags: [preflight]
+
+    - name: Display GPU info
+      ansible.builtin.debug:
+        msg: "{{ nvidia_check.stdout_lines[:5] }}"
+      tags: [preflight]
+
+    - name: Verify Ollama is running
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:11434/api/tags"
+        method: GET
+        status_code: 200
+      register: ollama_check
+      retries: 3
+      delay: 5
+      until: ollama_check.status == 200
+      tags: [preflight]
+
+    - name: Verify ComfyUI is running
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8188/system_stats"
+        method: GET
+        status_code: 200
+      register: comfyui_check
+      retries: 3
+      delay: 5
+      until: comfyui_check.status == 200
+      tags: [preflight]
+
+    - name: Show preflight results
+      ansible.builtin.debug:
+        msg:
+          - "GPU: Available"
+          - "Ollama: Running ({{ ollama_check.json.models | length }} models)"
+          - "ComfyUI: Running"
+      tags: [preflight]
+
+    # ── Storage ─────────────────────────────────────────────────────
+    - name: Create AI output directories
+      ansible.builtin.file:
+        path: "{{ ai_output_dir }}"
+        state: directory
+        owner: "{{ ansible_user | default('andres') }}"
+        group: "{{ ansible_user | default('andres') }}"
+        mode: '0755'
+
+    # ── Node Labels and Taints ──────────────────────────────────────
+    - name: Label DarkBase as inference node
+      ansible.builtin.command:
+        cmd: kubectl label node darkbase mimi.local/role=inference --overwrite
+      changed_when: true
+      tags: [k8s]
+
+    - name: Label DarkBase with GPU marker
+      ansible.builtin.command:
+        cmd: kubectl label node darkbase nvidia.com/gpu=true --overwrite
+      changed_when: true
+      tags: [k8s]
+
+    - name: Taint DarkBase for GPU workloads only
+      ansible.builtin.command:
+        cmd: kubectl taint node darkbase mimi.local/gpu-workload=true:NoSchedule --overwrite
+      changed_when: true
+      tags: [k8s]
+
+    # ── Build Container Images ──────────────────────────────────────
+    - name: Check if Docker is available
+      ansible.builtin.command:
+        cmd: docker --version
+      register: docker_check
+      changed_when: false
+      failed_when: docker_check.rc != 0
+      tags: [build]
+
+    - name: Build LLM adapter image
+      ansible.builtin.command:
+        cmd: docker build -t mimi-llm-adapter:latest .
+        chdir: "{{ services_dir }}/llm-adapter"
+      changed_when: true
+      tags: [build]
+
+    - name: Build image adapter image
+      ansible.builtin.command:
+        cmd: docker build -t mimi-image-adapter:latest .
+        chdir: "{{ services_dir }}/image-adapter"
+      changed_when: true
+      tags: [build]
+
+    - name: Build UI image
+      ansible.builtin.command:
+        cmd: docker build -t mimi-ai-ui:latest .
+        chdir: "{{ services_dir }}/ui"
+      changed_when: true
+      tags: [build]
+
+    - name: Import LLM adapter into k3s
+      ansible.builtin.shell: |
+        docker save mimi-llm-adapter:latest | k3s ctr images import -
+      changed_when: true
+      tags: [build]
+
+    - name: Import image adapter into k3s
+      ansible.builtin.shell: |
+        docker save mimi-image-adapter:latest | k3s ctr images import -
+      changed_when: true
+      tags: [build]
+
+    - name: Import UI into k3s
+      ansible.builtin.shell: |
+        docker save mimi-ai-ui:latest | k3s ctr images import -
+      changed_when: true
+      tags: [build]
+
+    - name: Verify images in k3s
+      ansible.builtin.shell: |
+        k3s ctr images ls | grep mimi
+      register: images_check
+      changed_when: false
+      tags: [build]
+
+    - name: Display imported images
+      ansible.builtin.debug:
+        msg: "{{ images_check.stdout_lines }}"
+      tags: [build]
+
+    # ── Summary ─────────────────────────────────────────────────────
+    - name: Display setup summary
+      ansible.builtin.debug:
+        msg:
+          - "=== DarkBase AI Platform Setup Complete ==="
+          - "GPU: Available"
+          - "Ollama: Running on :11434"
+          - "ComfyUI: Running on :8188"
+          - "Output dir: {{ ai_output_dir }}"
+          - "Node labels: mimi.local/role=inference, nvidia.com/gpu=true"
+          - "Node taint: mimi.local/gpu-workload=true:NoSchedule"
+          - "Container images imported into k3s"
+          - ""
+          - "Next: Push MiMi repo changes and let ArgoCD sync the AI stack"

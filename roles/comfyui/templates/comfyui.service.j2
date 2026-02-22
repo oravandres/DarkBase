@@ -1,0 +1,14 @@
+[Unit]
+Description=ComfyUI Server
+After=network.target
+
+[Service]
+Type=simple
+User={{ ansible_user | default('andres') }}
+WorkingDirectory={{ comfyui_install_dir }}
+ExecStart={{ comfyui_install_dir }}/venv/bin/python main.py --listen {{ comfyui_host }} --port {{ comfyui_port }}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

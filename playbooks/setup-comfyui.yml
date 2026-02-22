@@ -1,0 +1,15 @@
+---
+- name: Setup ComfyUI Server for FLUX.1
+  hosts: DarkBase
+  become: yes
+
+  # Override model settings here if needed:
+  vars:
+    # Use 'schnell' (faster, no token required) or 'dev' (requires token)
+    flux_model_version: 'dev'
+    # Set flux_hf_token in inventory/group_vars/all.yml (gitignored)
+    # flux_hf_token: "your-huggingface-token-here"
+
+  roles:
+    - role: comfyui
+

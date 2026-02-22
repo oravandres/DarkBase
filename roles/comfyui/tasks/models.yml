@@ -1,0 +1,61 @@
+---
+- name: Set FLUX model URLs
+  ansible.builtin.set_fact:
+    flux_unet_url: "{% if flux_model_version == 'dev' %}https://huggingface.co/black-forest-labs/FLUX.1-dev/resolve/main/flux1-dev.safetensors{% else %}https://huggingface.co/black-forest-labs/FLUX.1-schnell/resolve/main/flux1-schnell.safetensors{% endif %}"
+    flux_unet_dest: "{{ comfyui_install_dir }}/models/unet/flux1-{{ flux_model_version }}.safetensors"
+    flux_vae_url: "https://huggingface.co/black-forest-labs/FLUX.1-schnell/resolve/main/ae.safetensors"
+    flux_vae_dest: "{{ comfyui_install_dir }}/models/vae/ae.safetensors"
+    clip_l_url: "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors"
+    clip_l_dest: "{{ comfyui_install_dir }}/models/clip/clip_l.safetensors"
+    t5xxl_url: "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors"
+    t5xxl_dest: "{{ comfyui_install_dir }}/models/clip/t5xxl_fp8_e4m3fn.safetensors"
+
+- name: Create headers for downloading if token is provided
+  ansible.builtin.set_fact:
+    hf_headers:
+      Authorization: "Bearer {{ flux_hf_token }}"
+  when: flux_hf_token | default('') != ''
+
+- name: Download FLUX UNET (This will take a while, ~24GB)
+  ansible.builtin.get_url:
+    url: "{{ flux_unet_url }}"
+    dest: "{{ flux_unet_dest }}"
+    headers: "{{ hf_headers | default(omit) }}"
+    timeout: 7200
+  async: 14400
+  poll: 60
+  become: yes
+  become_user: "{{ ansible_user | default('andres') }}"
+
+- name: Download FLUX VAE
+  ansible.builtin.get_url:
+    url: "{{ flux_vae_url }}"
+    dest: "{{ flux_vae_dest }}"
+    headers: "{{ hf_headers | default(omit) }}"
+    timeout: 3600
+  async: 7200
+  poll: 30
+  become: yes
+  become_user: "{{ ansible_user | default('andres') }}"
+
+- name: Download CLIP L
+  ansible.builtin.get_url:
+    url: "{{ clip_l_url }}"
+    dest: "{{ clip_l_dest }}"
+    headers: "{{ hf_headers | default(omit) }}"
+    timeout: 3600
+  async: 7200
+  poll: 30
+  become: yes
+  become_user: "{{ ansible_user | default('andres') }}"
+
+- name: Download T5XXL
+  ansible.builtin.get_url:
+    url: "{{ t5xxl_url }}"
+    dest: "{{ t5xxl_dest }}"
+    headers: "{{ hf_headers | default(omit) }}"
+    timeout: 7200
+  async: 14400
+  poll: 60
+  become: yes
+  become_user: "{{ ansible_user | default('andres') }}"

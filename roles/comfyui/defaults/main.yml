@@ -1,0 +1,15 @@
+---
+# ComfyUI installation directory (on fast NVMe)
+comfyui_install_dir: /media/andres/data/comfyui
+
+# ComfyUI API bind address (0.0.0.0 for cluster access)
+comfyui_host: 0.0.0.0
+comfyui_port: 8188
+
+# Models to download for FLUX.1 (schnell by default, or dev if token is provided)
+flux_model_version: "schnell" # can be 'dev' or 'schnell'
+# If dev, you must provide a valid HuggingFace Token
+flux_hf_token: ""
+
+comfyui_repo_url: "https://github.com/comfyanonymous/ComfyUI.git"
+comfyui_repo_version: "master"

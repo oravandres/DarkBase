@@ -1,0 +1,88 @@
+---
+- name: Install required system packages
+  ansible.builtin.apt:
+    name:
+      - git
+      - python3-venv
+      - python3-pip
+      - wget
+    state: present
+    update_cache: yes
+  become: yes
+
+- name: Create ComfyUI parent directory
+  ansible.builtin.file:
+    path: "{{ comfyui_install_dir | dirname }}"
+    state: directory
+    owner: "{{ ansible_user | default('andres') }}"
+    group: "{{ ansible_user | default('andres') }}"
+    mode: '0755'
+  become: yes
+
+- name: Clone ComfyUI repository
+  ansible.builtin.git:
+    repo: "{{ comfyui_repo_url }}"
+    dest: "{{ comfyui_install_dir }}"
+    version: "{{ comfyui_repo_version }}"
+    update: yes
+  become: yes
+  become_user: "{{ ansible_user | default('andres') }}"
+
+- name: Fix ownership of ComfyUI directory
+  ansible.builtin.file:
+    path: "{{ comfyui_install_dir }}"
+    state: directory
+    owner: "{{ ansible_user | default('andres') }}"
+    group: "{{ ansible_user | default('andres') }}"
+    recurse: yes
+  become: yes
+
+- name: Create Python virtual environment
+  ansible.builtin.command:
+    cmd: python3 -m venv {{ comfyui_install_dir }}/venv
+    creates: "{{ comfyui_install_dir }}/venv"
+  become: yes
+  become_user: "{{ ansible_user | default('andres') }}"
+
+- name: Install ComfyUI Python requirements
+  ansible.builtin.pip:
+    requirements: "{{ comfyui_install_dir }}/requirements.txt"
+    virtualenv: "{{ comfyui_install_dir }}/venv"
+  become: yes
+  become_user: "{{ ansible_user | default('andres') }}"
+
+- name: Include model download tasks
+  ansible.builtin.include_tasks: models.yml
+
+- name: Install ComfyUI systemd service
+  ansible.builtin.template:
+    src: comfyui.service.j2
+    dest: /etc/systemd/system/comfyui.service
+    owner: root
+    group: root
+    mode: '0644'
+  become: yes
+  notify: Restart ComfyUI
+
+- name: Enable and start ComfyUI service
+  ansible.builtin.systemd:
+    name: comfyui
+    state: started
+    enabled: yes
+    daemon_reload: yes
+  become: yes
+
+- name: Wait for ComfyUI API to be ready
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ comfyui_port }}/system_stats"
+    method: GET
+    status_code: 200
+  register: health_check
+  retries: 15
+  delay: 3
+  until: health_check.status == 200
+  ignore_errors: yes
+
+- name: Show ComfyUI API status
+  ansible.builtin.debug:
+    msg: "ComfyUI is running at http://{{ comfyui_host }}:{{ comfyui_port }}"
