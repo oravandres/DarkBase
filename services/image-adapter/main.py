@@ -19,7 +19,7 @@ from typing import Any
 
 import httpx
 import aiofiles
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Form, UploadFile, File
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field
 from prometheus_client import (
@@ -166,7 +166,10 @@ async def _check_comfyui() -> bool:
         return False
 
 
-def _build_flux_workflow(prompt: str, width: int, height: int, steps: int, seed: int) -> dict:
+def _build_flux_workflow(
+    prompt: str, width: int, height: int, steps: int, seed: int,
+    denoise: float = 1.0, init_image: str | None = None
+) -> dict:
     """Build a ComfyUI workflow for FLUX.1 image generation.
 
     Uses split-model nodes (UNETLoader, DualCLIPLoader, VAELoader) matching
@@ -187,16 +190,16 @@ def _build_flux_workflow(prompt: str, width: int, height: int, steps: int, seed:
                     "cfg": 1.0,
                     "sampler_name": "euler",
                     "scheduler": "simple",
-                    "denoise": 1.0,
+                    "denoise": denoise,
                     "model": ["10", 0],  # Will be updated if LoRAs exist
                     "positive": ["6", 0],
                     "negative": ["7", 0],
-                    "latent_image": ["5", 0],
+                    "latent_image": ["13", 0] if init_image else ["5", 0],
                 },
             },
             "5": {
-                "class_type": "EmptyLatentImage",
-                "inputs": {
+                "class_type": "LoadImage" if init_image else "EmptyLatentImage",
+                "inputs": {"image": init_image} if init_image else {
                     "width": width,
                     "height": height,
                     "batch_size": 1,
@@ -253,6 +256,16 @@ def _build_flux_workflow(prompt: str, width: int, height: int, steps: int, seed:
             },
         }
     }
+    
+    # Inject VAE Encode if doing img2img
+    if init_image:
+        workflow["prompt"]["13"] = {
+            "class_type": "VAEEncode",
+            "inputs": {
+                "pixels": ["5", 0],
+                "vae": ["12", 0]
+            }
+        }
 
     # Intercept <lora:filename:strength> tags from the prompt
     lora_matches = list(re.finditer(r"<lora:([^:>]+)(?::([0-9.]+))?>", prompt))
@@ -351,6 +364,8 @@ async def _queue_worker():
                 height=job["height"],
                 steps=job["steps"],
                 seed=job["seed"],
+                denoise=job.get("denoise", 1.0),
+                init_image=job.get("init_image", None)
             )
 
             # Submit to ComfyUI
@@ -572,7 +587,16 @@ async def health():
 
 
 @app.post("/api/v1/images/generate")
-async def generate_image(req: GenerateRequest):
+async def generate_image(
+    prompt: str = Form(...),
+    width: int = Form(1024),
+    height: int = Form(1024),
+    steps: int = Form(20),
+    seed: int | None = Form(None),
+    cfg_scale: float = Form(1.0),
+    denoise: float = Form(1.0),
+    image: UploadFile | None = File(None)
+):
     if job_queue is None:
         return make_error("NOT_READY", "Service not yet initialized", 503)
 
@@ -583,19 +607,40 @@ async def generate_image(req: GenerateRequest):
             429,
         )
 
-    seed = req.seed if req.seed is not None else random.randint(0, 2**32 - 1)
+    seed_val = seed if seed is not None else random.randint(0, 2**32 - 1)
     job_id = str(uuid.uuid4())
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    
+    # Handle image upload if provided
+    init_image_name = None
+    if image is not None and image.size > 0:
+        try:
+            # Send file to ComfyUI upload endpoint
+            files = {"image": (image.filename, image.file, image.content_type)}
+            data = {"overwrite": "true"}
+            async with httpx.AsyncClient() as client:
+                r = await client.post(
+                    f"{COMFYUI_BASE_URL}/upload/image", files=files, data=data, timeout=30
+                )
+                if r.status_code == 200:
+                    comfy_res = r.json()
+                    init_image_name = comfy_res.get("name")
+                else:
+                    logger.error(f"Failed to upload image to ComfyUI: {r.status_code} {r.text}")
+        except Exception as e:
+            logger.error(f"Error handling image upload: {e}")
 
     job = {
         "id": job_id,
         "status": JobStatus.QUEUED,
-        "prompt": req.prompt,
-        "width": req.width,
-        "height": req.height,
-        "steps": req.steps,
-        "seed": seed,
-        "cfg_scale": req.cfg_scale,
+        "prompt": prompt,
+        "width": width,
+        "height": height,
+        "steps": steps,
+        "seed": seed_val,
+        "cfg_scale": cfg_scale,
+        "denoise": denoise,
+        "init_image": init_image_name,
         "created_at": now,
         "queue_position": job_queue.qsize() + 1,
     }

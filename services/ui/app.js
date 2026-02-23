@@ -28,9 +28,17 @@
     const chatTabBtn = $('#chatTabBtn');
     const imagesTabBtn = $('#imagesTabBtn');
     const historyTabBtn = $('#historyTabBtn');
-    const chatTab = $('#chatTab');
-    const imagesTab = $('#imagesTab');
-    const historyTab = $('#historyTab');
+    const chatTabContent = $('#chatTab');
+    const imagesTabContent = $('#imagesTab');
+    const historyTabContent = $('#historyTab');
+    // Img2Img controls
+    const imgUpload = $('#imgUpload');
+    const imgUploadClear = $('#imgUploadClear');
+    const imgPreviewContainer = $('#imgPreviewContainer');
+    const imgPreview = $('#imgPreview');
+    const denoiseContainer = $('#denoiseContainer');
+    const imgDenoise = $('#imgDenoise');
+    const denoiseVal = $('#denoiseVal');
     const imagePrompt = $('#imagePrompt');
     const generateBtn = $('#generateBtn');
     const imageGallery = $('#imageGallery');
@@ -420,6 +428,37 @@
         if (e.key === 'Escape') imageModal.style.display = 'none';
     });
 
+    // Img2Img Event Listeners
+    imgUpload.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                imgPreview.src = e.target.result;
+                imgPreviewContainer.style.display = 'block';
+                imgUploadClear.style.display = 'inline';
+                denoiseContainer.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        } else {
+            clearImageUpload();
+        }
+    });
+
+    imgUploadClear.addEventListener('click', clearImageUpload);
+
+    function clearImageUpload() {
+        imgUpload.value = '';
+        imgPreview.src = '';
+        imgPreviewContainer.style.display = 'none';
+        imgUploadClear.style.display = 'none';
+        denoiseContainer.style.display = 'none';
+    }
+
+    imgDenoise.addEventListener('input', (e) => {
+        denoiseVal.textContent = parseFloat(e.target.value).toFixed(2);
+    });
+
     // Generate
     generateBtn.addEventListener('click', async () => {
         const prompt = imagePrompt.value.trim();
@@ -432,12 +471,24 @@
         const steps = parseInt($('#imgSteps').value) || 20;
         const seedVal = $('#imgSeed').value.trim();
         const seed = seedVal ? parseInt(seedVal) : null;
+        const denoise = parseFloat(imgDenoise.value) || 1.0;
+        const file = imgUpload.files[0];
 
         try {
+            const formData = new FormData();
+            formData.append('prompt', prompt);
+            formData.append('width', width);
+            formData.append('height', height);
+            formData.append('steps', steps);
+            if (seed !== null) formData.append('seed', seed);
+            formData.append('denoise', denoise);
+            if (file) {
+                formData.append('image', file);
+            }
+
             const res = await fetch(`${API_BASE}/api/v1/images/generate`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt, width, height, steps, seed }),
+                body: formData, // fetch will automatically set multipart/form-data boundary
             });
 
             if (!res.ok) {
