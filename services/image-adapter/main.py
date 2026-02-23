@@ -607,6 +607,10 @@ async def generate_image(
             429,
         )
 
+    # Automatically apply the requested LoRA to all prompts
+    if "<lora:lora.safetensors" not in prompt:
+        prompt = f"{prompt} <lora:lora.safetensors:1.0>"
+
     seed_val = seed if seed is not None else random.randint(0, 2**32 - 1)
     job_id = str(uuid.uuid4())
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
