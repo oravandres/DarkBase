@@ -476,12 +476,12 @@
 
         try {
             const formData = new FormData();
-            formData.append('prompt', prompt);
-            formData.append('width', width);
-            formData.append('height', height);
-            formData.append('steps', steps);
-            if (seed !== null) formData.append('seed', seed);
-            formData.append('denoise', denoise);
+            formData.append('prompt', String(prompt));
+            formData.append('width', String(width));
+            formData.append('height', String(height));
+            formData.append('steps', String(steps));
+            if (seed !== null) formData.append('seed', String(seed));
+            formData.append('denoise', String(denoise));
             if (file) {
                 formData.append('image', file);
             }
