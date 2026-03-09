@@ -309,7 +309,7 @@ def _build_flux_workflow(
     workflow["prompt"]["7"]["inputs"]["clip"] = last_clip
 
     # Inject FluxGuidance for dev model (required to avoid noise images)
-    if FLUX_MODEL_VERSION in ("dev", "gaia"):
+    if FLUX_MODEL_VERSION in ("dev", "gaia", "ablit_v2"):
         node_id_counter += 1
         guidance_node = str(node_id_counter)
         workflow["prompt"][guidance_node] = {

@@ -6,7 +6,7 @@
   # Override model settings here if needed:
   vars:
     # Use 'schnell' (faster, no token required) or 'dev' (requires token)
-    flux_model_version: 'dev'
+    flux_model_version: 'ablit_v2'
     # Set flux_hf_token in inventory/group_vars/all.yml (gitignored)
     # flux_hf_token: "your-huggingface-token-here"
 
