@@ -416,7 +416,11 @@
             <div>Size: <span>${img.width}×${img.height}</span></div>
             <div>Steps: <span>${img.steps}</span></div>
             <div>Seed: <span>${img.seed}</span></div>
-            ${img.duration_seconds ? `<div>Time: <span>${img.duration_seconds}s</span></div>` : ''}`;
+            ${img.duration_seconds ? `<div>Time: <span>${img.duration_seconds}s</span></div>` : ''}
+            <button class="btn-regen" onclick="window._regenerateImage('${img.prompt.replace(/'/g, "\\'")}', ${img.width}, ${img.height}, ${img.steps}, ${img.seed})">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                Regenerate
+            </button>`;
         imageModal.style.display = 'flex';
     };
 
@@ -427,6 +431,27 @@
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') imageModal.style.display = 'none';
     });
+
+    window._regenerateImage = function (prompt, width, height, steps, seed) {
+        // Strip trailing lora tag if it exists (backend adds it)
+        const cleanPrompt = prompt.replace(/\s*<lora:[^>]+>\s*$/i, '');
+
+        imagePrompt.value = cleanPrompt;
+        if (width) $('#imgWidth').value = width;
+        if (height) $('#imgHeight').value = height;
+        if (steps) $('#imgSteps').value = steps;
+
+        // Remove seed so it generates a *new* image with the same prompt, unless user explicitly wants same output
+        // Uncomment next line if you want to keep the exact seed:
+        // $('#imgSeed').value = seed;
+        $('#imgSeed').value = '';
+
+        imageModal.style.display = 'none';
+        switchTab('images');
+
+        // Scroll to form and highlight
+        imagePrompt.focus();
+    };
 
     // Img2Img Event Listeners
     imgUpload.addEventListener('change', (e) => {
@@ -752,7 +777,11 @@
                     <div>Prompt: <span>${escapeHtml(entry.prompt || '')}</span></div>
                     <div>Size: <span>${entry.width}×${entry.height}</span></div>
                     <div>Seed: <span>${entry.seed}</span></div>
-                    ${entry.duration_seconds ? `<div>Time: <span>${entry.duration_seconds}s</span></div>` : ''}`;
+                    ${entry.duration_seconds ? `<div>Time: <span>${entry.duration_seconds}s</span></div>` : ''}
+                    <button class="btn-regen" onclick="window._regenerateImage('${(entry.prompt || '').replace(/'/g, "\\'")}', ${entry.width}, ${entry.height}, ${entry.steps || 20}, ${entry.seed})">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                        Regenerate
+                    </button>`;
                 imageModal.style.display = 'flex';
             }
             return;
