@@ -5,11 +5,10 @@
 
   # Override model settings here if needed:
   vars:
-    # Use 'schnell' (faster, no token required) or 'dev' (requires token)
-    flux_model_version: 'ablit_v2'
+    # Use 'schnell' (faster, no token required) or 'dev'    # Variables for ComfyUI container
+    flux_model_version: 'gaia' # Options: 'dev', 'schnell', 'ablit_v2', 'gaia'
     # Set flux_hf_token in inventory/group_vars/all.yml (gitignored)
     # flux_hf_token: "your-huggingface-token-here"
 
   roles:
     - role: comfyui
-
