@@ -237,7 +237,7 @@ def _build_flux_workflow(
                 "class_type": "UNETLoaderNF4" if FLUX_MODEL_VERSION == "gaia" else "UNETLoader",
                 "inputs": {"unet_name": unet_name} if FLUX_MODEL_VERSION == "gaia" else {
                     "unet_name": unet_name,
-                    "weight_dtype": "fp8_e4m3fn",
+                    "weight_dtype": "default",
                 },
             },
             "11": {
