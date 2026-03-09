@@ -237,7 +237,7 @@ def _build_flux_workflow(
                 "class_type": "UNETLoaderNF4" if FLUX_MODEL_VERSION == "gaia" else "UNETLoader",
                 "inputs": {"unet_name": unet_name} if FLUX_MODEL_VERSION == "gaia" else {
                     "unet_name": unet_name,
-                    "weight_dtype": "default",
+                    "weight_dtype": "fp8_e4m3fn",
                 },
             },
             "11": {
@@ -307,6 +307,19 @@ def _build_flux_workflow(
     workflow["prompt"]["3"]["inputs"]["model"] = last_model
     workflow["prompt"]["6"]["inputs"]["clip"] = last_clip
     workflow["prompt"]["7"]["inputs"]["clip"] = last_clip
+
+    # Inject FluxGuidance for dev model (required to avoid noise images)
+    if FLUX_MODEL_VERSION in ("dev", "gaia"):
+        node_id_counter += 1
+        guidance_node = str(node_id_counter)
+        workflow["prompt"][guidance_node] = {
+            "class_type": "FluxGuidance",
+            "inputs": {
+                "conditioning": ["6", 0],
+                "guidance": 3.5,
+            }
+        }
+        workflow["prompt"]["3"]["inputs"]["positive"] = [guidance_node, 0]
 
     return workflow
 

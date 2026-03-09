@@ -36,12 +36,10 @@
   changed_when: false
   failed_when: false
 
-- name: Install Ollama via official script
+- name: Install or update Ollama via official script
   ansible.builtin.shell: |
     curl -fsSL https://ollama.com/install.sh | sh
-  args:
-    creates: /usr/local/bin/ollama
-  when: ollama_installed.rc != 0
+  when: ollama_installed.rc != 0 or ollama_force_update
 
 - name: Verify Ollama installation
   ansible.builtin.command:

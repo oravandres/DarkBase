@@ -2,10 +2,10 @@
 - name: Setup Ollama LLM Server
   hosts: DarkBase
   become: yes
-  # Override models list here if needed:
-  vars:
-    ollama_models:
-      - deepseek-r1:70b
+  # To override models, uncomment and edit:
+  # vars:
+  #   ollama_models:
+  #     - deepseek-r1:70b
 
   roles:
     - role: ollama
