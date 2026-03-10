@@ -39,7 +39,7 @@ OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/media/andres/data/ai-outputs/images")
 MAX_QUEUE_DEPTH = int(os.getenv("MAX_QUEUE_DEPTH", "10"))
 HEALTH_TIMEOUT = float(os.getenv("HEALTH_TIMEOUT", "5"))
 GENERATION_TIMEOUT = float(os.getenv("GENERATION_TIMEOUT", "600"))
-FLUX_MODEL_VERSION = os.getenv("FLUX_MODEL_VERSION", "dev")
+FLUX_MODEL_VERSION = os.getenv("FLUX_MODEL_VERSION", "gaia")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("image-adapter")
@@ -170,14 +170,7 @@ def _build_flux_workflow(
     prompt: str, width: int, height: int, steps: int, seed: int,
     denoise: float = 1.0, init_image: str | None = None
 ) -> dict:
-    """Build a ComfyUI workflow for FLUX.1 image generation.
-
-    Uses split-model nodes (UNETLoader, DualCLIPLoader, VAELoader) matching
-    the directory layout created by the Ansible comfyui role:
-      models/unet/flux1-{version}.safetensors
-      models/clip/clip_l.safetensors + t5xxl_fp8_e4m3fn.safetensors
-      models/vae/ae.safetensors
-    """
+    """Build a ComfyUI workflow for FLUX.1 image generation."""
     unet_name = f"flux1-{FLUX_MODEL_VERSION}.safetensors"
 
     workflow = {
@@ -191,7 +184,7 @@ def _build_flux_workflow(
                     "sampler_name": "euler",
                     "scheduler": "simple",
                     "denoise": denoise,
-                    "model": ["10", 0],  # Will be updated if LoRAs exist
+                    "model": ["10", 0],
                     "positive": ["6", 0],
                     "negative": ["7", 0],
                     "latent_image": ["13", 0] if init_image else ["5", 0],
@@ -209,14 +202,14 @@ def _build_flux_workflow(
                 "class_type": "CLIPTextEncode",
                 "inputs": {
                     "text": prompt,  # Will be updated to stripped prompt
-                    "clip": ["11", 0], # Will be updated if LoRAs exist
+                    "clip": ["11", 0],
                 },
             },
             "7": {
                 "class_type": "CLIPTextEncode",
                 "inputs": {
                     "text": "",
-                    "clip": ["11", 0], # Will be updated if LoRAs exist
+                    "clip": ["11", 0],
                 },
             },
             "8": {
@@ -273,17 +266,21 @@ def _build_flux_workflow(
 
     last_model = ["10", 0]
     last_clip = ["11", 0]
-    node_id_counter = 20
+    node_id_counter = 14 # Start after existing nodes
 
     for match in lora_matches:
         full_match = match.group(0)
+        clean_prompt = clean_prompt.replace(full_match, "")
+        
+        # NF4 models physically cannot combine with LoRAs, so we skip adding the structural node
+        if FLUX_MODEL_VERSION == "gaia":
+            continue
+            
         lora_name = match.group(1)
         strength = float(match.group(2)) if match.group(2) else 1.0
 
         if not lora_name.endswith(".safetensors"):
             lora_name += ".safetensors"
-
-        clean_prompt = clean_prompt.replace(full_match, "")
 
         node_id = str(node_id_counter)
         workflow["prompt"][node_id] = {
