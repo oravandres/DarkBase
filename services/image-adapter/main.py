@@ -624,6 +624,26 @@ async def generate_image(
     if "<lora:lora.safetensors" not in prompt:
         prompt = f"{prompt} <lora:lora.safetensors:1.0>"
 
+    # FLUX constraints to prevent "abstracted" noise
+    if FLUX_MODEL_VERSION in ("dev", "gaia", "ablit_v2"):
+        steps = max(steps, 20)
+        
+        # Enforce minimum dimension while preserving rough aspect ratio
+        min_dim = 768
+        if width < min_dim or height < min_dim:
+            if width <= height:
+                ratio = height / width
+                width = min_dim
+                height = int(min_dim * ratio)
+            else:
+                ratio = width / height
+                height = min_dim
+                width = int(min_dim * ratio)
+            
+            # Ensure dimensions are divisible by 16 as required by FLUX
+            width = (width // 16) * 16
+            height = (height // 16) * 16
+
     seed_val = seed if seed is not None else random.randint(0, 2**32 - 1)
     job_id = str(uuid.uuid4())
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
