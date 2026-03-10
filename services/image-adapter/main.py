@@ -39,7 +39,8 @@ OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/media/andres/data/ai-outputs/images")
 MAX_QUEUE_DEPTH = int(os.getenv("MAX_QUEUE_DEPTH", "10"))
 HEALTH_TIMEOUT = float(os.getenv("HEALTH_TIMEOUT", "5"))
 GENERATION_TIMEOUT = float(os.getenv("GENERATION_TIMEOUT", "600"))
-FLUX_MODEL_VERSION = os.getenv("FLUX_MODEL_VERSION", "gaia")
+# Which FLUX version to use: "dev", "schnell", "ablit_v2", or "gaia"
+FLUX_MODEL_VERSION = os.getenv("FLUX_MODEL_VERSION", "dev")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("image-adapter")
