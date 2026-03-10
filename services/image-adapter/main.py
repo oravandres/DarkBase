@@ -230,7 +230,7 @@ def _build_flux_workflow(
                 "class_type": "UNETLoader",
                 "inputs": {
                     "unet_name": unet_name,
-                    "weight_dtype": "default",
+                    "weight_dtype": "fp8_e4m3fn" if FLUX_MODEL_VERSION in ("gaia", "dev") else "default",
                 },
             },
             "11": {
