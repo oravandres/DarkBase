@@ -39,7 +39,6 @@ OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/media/andres/data/ai-outputs/images")
 MAX_QUEUE_DEPTH = int(os.getenv("MAX_QUEUE_DEPTH", "10"))
 HEALTH_TIMEOUT = float(os.getenv("HEALTH_TIMEOUT", "5"))
 GENERATION_TIMEOUT = float(os.getenv("GENERATION_TIMEOUT", "600"))
-# Which FLUX version to use: "dev", "schnell", "ablit_v2", or "gaia"
 FLUX_MODEL_VERSION = os.getenv("FLUX_MODEL_VERSION", "dev")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -171,7 +170,14 @@ def _build_flux_workflow(
     prompt: str, width: int, height: int, steps: int, seed: int,
     denoise: float = 1.0, init_image: str | None = None
 ) -> dict:
-    """Build a ComfyUI workflow for FLUX.1 image generation."""
+    """Build a ComfyUI workflow for FLUX.1 image generation.
+
+    Uses split-model nodes (UNETLoader, DualCLIPLoader, VAELoader) matching
+    the directory layout created by the Ansible comfyui role:
+      models/unet/flux1-{version}.safetensors
+      models/clip/clip_l.safetensors + t5xxl_fp8_e4m3fn.safetensors
+      models/vae/ae.safetensors
+    """
     unet_name = f"flux1-{FLUX_MODEL_VERSION}.safetensors"
 
     workflow = {
@@ -185,7 +191,7 @@ def _build_flux_workflow(
                     "sampler_name": "euler",
                     "scheduler": "simple",
                     "denoise": denoise,
-                    "model": ["10", 0],
+                    "model": ["10", 0],  # Will be updated if LoRAs exist
                     "positive": ["6", 0],
                     "negative": ["7", 0],
                     "latent_image": ["13", 0] if init_image else ["5", 0],
@@ -203,14 +209,14 @@ def _build_flux_workflow(
                 "class_type": "CLIPTextEncode",
                 "inputs": {
                     "text": prompt,  # Will be updated to stripped prompt
-                    "clip": ["11", 0],
+                    "clip": ["11", 0], # Will be updated if LoRAs exist
                 },
             },
             "7": {
                 "class_type": "CLIPTextEncode",
                 "inputs": {
                     "text": "",
-                    "clip": ["11", 0],
+                    "clip": ["11", 0], # Will be updated if LoRAs exist
                 },
             },
             "8": {
@@ -231,7 +237,7 @@ def _build_flux_workflow(
                 "class_type": "UNETLoaderNF4" if FLUX_MODEL_VERSION == "gaia" else "UNETLoader",
                 "inputs": {"unet_name": unet_name} if FLUX_MODEL_VERSION == "gaia" else {
                     "unet_name": unet_name,
-                    "weight_dtype": "fp8_e4m3fn" if FLUX_MODEL_VERSION == "dev" else "default",
+                    "weight_dtype": "default",
                 },
             },
             "11": {
@@ -267,21 +273,17 @@ def _build_flux_workflow(
 
     last_model = ["10", 0]
     last_clip = ["11", 0]
-    node_id_counter = 14 # Start after existing nodes
+    node_id_counter = 20
 
     for match in lora_matches:
         full_match = match.group(0)
-        clean_prompt = clean_prompt.replace(full_match, "")
-        
-        # NF4 models physically cannot combine with LoRAs, so we skip adding the structural node
-        if FLUX_MODEL_VERSION == "gaia":
-            continue
-            
         lora_name = match.group(1)
         strength = float(match.group(2)) if match.group(2) else 1.0
 
         if not lora_name.endswith(".safetensors"):
             lora_name += ".safetensors"
+
+        clean_prompt = clean_prompt.replace(full_match, "")
 
         node_id = str(node_id_counter)
         workflow["prompt"][node_id] = {
@@ -305,19 +307,6 @@ def _build_flux_workflow(
     workflow["prompt"]["3"]["inputs"]["model"] = last_model
     workflow["prompt"]["6"]["inputs"]["clip"] = last_clip
     workflow["prompt"]["7"]["inputs"]["clip"] = last_clip
-
-    # Inject FluxGuidance for dev model (required to avoid noise images)
-    if FLUX_MODEL_VERSION in ("dev", "gaia", "ablit_v2"):
-        node_id_counter += 1
-        guidance_node = str(node_id_counter)
-        workflow["prompt"][guidance_node] = {
-            "class_type": "FluxGuidance",
-            "inputs": {
-                "conditioning": ["6", 0],
-                "guidance": 3.5,
-            }
-        }
-        workflow["prompt"]["3"]["inputs"]["positive"] = [guidance_node, 0]
 
     return workflow
 
@@ -381,12 +370,10 @@ async def _queue_worker():
 
             # Submit to ComfyUI
             async with httpx.AsyncClient() as client:
-                workflow["client_id"] = "image-adapter"
-                logger.info(f"Submitting workflow to ComfyUI: {json.dumps(workflow, indent=2)}")
                 r = await client.post(
                     f"{COMFYUI_BASE_URL}/prompt",
                     json=workflow,
-                    timeout=30.0,
+                    timeout=30,
                 )
                 if r.status_code != 200:
                     raise Exception(f"ComfyUI returned {r.status_code}: {r.text}")
@@ -623,26 +610,6 @@ async def generate_image(
     # Automatically apply the requested LoRA to all prompts
     if "<lora:lora.safetensors" not in prompt:
         prompt = f"{prompt} <lora:lora.safetensors:1.0>"
-
-    # FLUX constraints to prevent "abstracted" noise
-    if FLUX_MODEL_VERSION in ("dev", "gaia", "ablit_v2"):
-        steps = max(steps, 20)
-        
-        # Enforce minimum dimension while preserving rough aspect ratio
-        min_dim = 768
-        if width < min_dim or height < min_dim:
-            if width <= height:
-                ratio = height / width
-                width = min_dim
-                height = int(min_dim * ratio)
-            else:
-                ratio = width / height
-                height = min_dim
-                width = int(min_dim * ratio)
-            
-            # Ensure dimensions are divisible by 16 as required by FLUX
-            width = (width // 16) * 16
-            height = (height // 16) * 16
 
     seed_val = seed if seed is not None else random.randint(0, 2**32 - 1)
     job_id = str(uuid.uuid4())

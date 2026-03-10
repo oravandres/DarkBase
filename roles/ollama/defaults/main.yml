@@ -1,7 +1,4 @@
 ---
-# Force update Ollama version
-ollama_force_update: false
-
 # Ollama data directory (models stored on fast NVMe)
 ollama_data_dir: /media/andres/data/ollama
 
@@ -26,7 +23,6 @@ ollama_models:
   - deepseek-r1:32b
   - qwen3:32b
   - qwen3:14b
-  - qwen3.5:35b
   - qwen2.5-coder:32b
   - huihui_ai/deepseek-r1-abliterated:14b
   - huihui_ai/deepseek-r1-abliterated:32b
