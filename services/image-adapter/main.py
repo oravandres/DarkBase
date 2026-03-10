@@ -380,10 +380,11 @@ async def _queue_worker():
 
             # Submit to ComfyUI
             async with httpx.AsyncClient() as client:
+                workflow["client_id"] = "image-adapter"
                 logger.info(f"Submitting workflow to ComfyUI: {json.dumps(workflow, indent=2)}")
                 r = await client.post(
                     f"{COMFYUI_BASE_URL}/prompt",
-                    json={"prompt": workflow, "client_id": "image-adapter"},
+                    json=workflow,
                     timeout=30.0,
                 )
                 if r.status_code != 200:
