@@ -227,10 +227,10 @@ def _build_flux_workflow(
                 },
             },
             "10": {
-                "class_type": "UNETLoader",
-                "inputs": {
+                "class_type": "UNETLoaderNF4" if FLUX_MODEL_VERSION == "gaia" else "UNETLoader",
+                "inputs": {"unet_name": unet_name} if FLUX_MODEL_VERSION == "gaia" else {
                     "unet_name": unet_name,
-                    "weight_dtype": "fp8_e4m3fn" if FLUX_MODEL_VERSION in ("gaia", "dev") else "default",
+                    "weight_dtype": "fp8_e4m3fn" if FLUX_MODEL_VERSION == "dev" else "default",
                 },
             },
             "11": {
@@ -380,10 +380,11 @@ async def _queue_worker():
 
             # Submit to ComfyUI
             async with httpx.AsyncClient() as client:
+                logger.info(f"Submitting workflow to ComfyUI: {json.dumps(workflow, indent=2)}")
                 r = await client.post(
                     f"{COMFYUI_BASE_URL}/prompt",
-                    json=workflow,
-                    timeout=30,
+                    json={"prompt": workflow, "client_id": "image-adapter"},
+                    timeout=30.0,
                 )
                 if r.status_code != 200:
                     raise Exception(f"ComfyUI returned {r.status_code}: {r.text}")
